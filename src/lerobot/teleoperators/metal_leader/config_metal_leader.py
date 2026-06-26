@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from lerobot.motors.metal import validate_arm_end_type
 from lerobot.teleoperators.config import TeleoperatorConfig
 
 
@@ -15,3 +16,7 @@ class MetalLeaderConfig(TeleoperatorConfig):
     urdf_path: str = ""
     mock: bool = False
     calibration: dict | None = None
+
+    def __post_init__(self):
+        # TeleoperatorConfig has no __post_init__, so do not call super().
+        validate_arm_end_type(self.arm_end_type)

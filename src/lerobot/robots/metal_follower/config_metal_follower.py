@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from lerobot.cameras import CameraConfig
+from lerobot.motors.metal import validate_arm_end_type
 from lerobot.robots.config import RobotConfig
 
 
@@ -18,3 +19,7 @@ class MetalFollowerConfig(RobotConfig):
     mock: bool = False
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
     calibration: dict | None = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        validate_arm_end_type(self.arm_end_type)

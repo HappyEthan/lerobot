@@ -1,12 +1,12 @@
-# Metal-Arm × LeRobot 集成 — 测试指南
+# Metal-Arm × LeRobot Integration — Testing Guide
 
-本指南从「无硬件」到「完整端到端」分阶段验证 `metal_follower` / `metal_leader` 集成。
-按顺序做:每一阶段都建立在上一阶段已通过的基础上,风险逐级升高。
+Validate the `metal_follower` / `metal_leader` integration in stages, from "no
+hardware" to "full end-to-end". Do them in order: each stage builds on the
+previous one, with risk increasing as you go.
 
-- 代码位置:`src/lerobot/motors/metal/`、`src/lerobot/robots/metal_follower/`、`src/lerobot/teleoperators/metal_leader/`
-- 设计文档:`~/makermods/docs/superpowers/specs/2026-06-24-metal-arm-lerobot-integration-design.md`
-- 环境:conda **`MakerMods-lerobot`**(Python 3.12)
-- Python:`/home/ethan/miniconda3/envs/MakerMods-lerobot/bin/python`(下文简称 `$PY`)
+- Code: `src/lerobot/motors/metal/`, `src/lerobot/robots/metal_follower/`, `src/lerobot/teleoperators/metal_leader/`
+- Design doc: `~/makermods/docs/superpowers/specs/2026-06-24-metal-arm-lerobot-integration-design.md`
+- Environment: conda **`MakerMods-lerobot`** (Python 3.12)
 
 ```bash
 export PY=/home/ethan/miniconda3/envs/MakerMods-lerobot/bin/python
@@ -16,121 +16,147 @@ cd ~/makermods/lerobot
 
 ---
 
-## ⚠️ 先搞清楚 arm_end_type(决定维度与夹爪)
+## ⚠️ Understand arm_end_type first (it sets the dimensions)
 
-`MetalSDKInterface(can_id, urdf, arm_end_type, enable_arm)` 的 `arm_end_type` 有四种,**直接决定 state/action 维度**:
+`MetalSDKInterface(can_id, urdf, arm_end_type, enable_arm)` has four end types
+that directly determine the state/action dimensions:
 
-| arm_end_type | 末端 | URDF | `GetJointPosition` 维度 | 夹爪可用 | 本集成 state/action 维度 |
+| arm_end_type | End effector | URDF | `GetJointPosition` dim | Gripper usable | Integration state/action dim |
 |---|---|---|---|---|---|
-| 0 | 无末端 | `metal_no_gripper.urdf` | 6 | ❌ | **6**(仅 joint1-6) |
-| 1 | 夹爪 | `metal_with_gripper.urdf` | 7 | ✅ | **7**(+gripper) |
-| 2 | 示教器 | `metal_with_gripper.urdf` | 7 | ❌ | **6**(第7维忽略) |
-| 3 | 夹爪+示教器 | `metal_with_gripper.urdf` | 7 | ✅ | **7**(+gripper) |
+| 0 | none | `metal_no_gripper.urdf` | 6 | ❌ | **6** (joint1-6) |
+| 1 | gripper | `metal_with_gripper.urdf` | 7 | ✅ | **7** (+gripper) |
+| 2 | teaching pendant | `metal_with_gripper.urdf` | 7 | ❌ | **6** (7th value ignored) |
+| 3 | gripper + pendant | `metal_with_gripper.urdf` | 7 | ✅ | **7** (+gripper) |
 
-代码已按此表自动处理:`metal_motors(arm_end_type)` 决定 schema、`sync_read/sync_write` 按夹爪存在性收发、URDF 按类型自动选(留空时)。
+The code handles this automatically: `metal_motors(arm_end_type)` builds the
+schema, `sync_read`/`sync_write` add the gripper only when usable, and the URDF
+is auto-selected (when `urdf_path` is left empty).
 
-### 🔴 主从必须「夹爪存在性一致」
-lerobot 录制要求 **leader 的 `action_features` ≡ follower 的 `action_features`**。所以:
+### Misconfiguration is caught for you
+- **Config time:** an invalid `arm_end_type` (not 0–3) is rejected by the config
+  with a clear error.
+- **Connect time:** `MetalMotorsBus.connect()` compares the real
+  `GetJointPosition()` length against the configured `arm_end_type`. If you set
+  `arm_end_type=1` (gripper) but the arm reports only 6 values, connecting fails
+  with: *"the configured end effector does not match the hardware"*. Fix the
+  `--robot.arm_end_type` / `--teleop.arm_end_type` value and retry.
 
-- 想要**带夹爪遥操作**(人捏主臂夹爪→从臂夹爪跟随):**主、从都用 `arm_end_type=1`(或 3)** → 双方都 7 维,schema 对齐。✅
-- 若**主臂是纯示教器(type 2)**、从臂带夹爪(type 1):主臂 6 维、从臂 7 维 → **schema 不一致,录制会报错**。此时要么从臂也去掉夹爪,要么换带夹爪的主臂。
-- 配置时用 `--robot.arm_end_type=N` / `--teleop.arm_end_type=N` 指定,务必让两边的夹爪存在性一致。
+### 🔴 Leader and follower must agree on gripper presence
+LeRobot recording requires the leader's `action_features` to equal the
+follower's. So:
+
+- For **gripper teleoperation** (squeeze the leader gripper → follower gripper
+  follows): use **`arm_end_type=1` (or 3) on BOTH arms** → both 7-dim, schemas
+  match. ✅
+- A **pendant-only leader (type 2, 6-dim)** with a **gripper follower (type 1,
+  7-dim)** → schema mismatch, recording fails. Make both sides agree.
+- Set it with `--robot.arm_end_type=N` / `--teleop.arm_end_type=N`; keep gripper
+  presence identical on both sides.
 
 ---
 
-## 阶段 0 — 无硬件冒烟(现在就能跑)
+## Stage 0 — No-hardware smoke (run now)
 
 ```bash
 $PY -m pytest tests/motors/test_metal.py tests/robots/test_metal_follower.py tests/teleoperators/test_metal_leader.py -q
 ```
-**期望**:`28 passed`。覆盖单位换算、夹爪/示教器/无末端三种 `arm_end_type`、控制模式、schema 一致、安全限幅、`is_connected` 无副作用。
+**Expect:** `30 passed`. Covers unit conversions, all `arm_end_type` variants,
+control modes, schema agreement, safety clamping, misconfiguration detection,
+and the side-effect-free `is_connected`.
 
-CLI 能识别类型(无需硬件、无需 ROS2):
+CLI recognizes the types (no hardware, no ROS2 needed):
 ```bash
 $PY -c "import lerobot.scripts.lerobot_record; \
 from lerobot.robots.config import RobotConfig; from lerobot.teleoperators.config import TeleoperatorConfig; \
 print('robot ok:', 'metal_follower' in RobotConfig.get_known_choices()); \
 print('teleop ok:', 'metal_leader' in TeleoperatorConfig.get_known_choices())"
 ```
-**期望**:两个都 `True`。
+**Expect:** both `True`.
 
 ---
 
-## 阶段 1 — 真机连接 + 验证 SDK 假设(单臂,不运动)
+## Stage 1 — Hardware connect + verify SDK assumptions (single arm, no motion)
 
-这一步用**最低风险**证实/证伪集成依赖的三个关键假设。
+The lowest-risk way to confirm/refute the assumptions the integration relies on.
 
 ```bash
-source /opt/ros/humble/setup.bash      # metal_sdk 链接 ROS2 C++ 库,必须先 source
+source /opt/ros/humble/setup.bash      # metal_sdk links ROS2 C++ libs; must source first
 conda activate MakerMods-lerobot
-./start_can.sh                          # 拉起 can0(follower) / can1(leader)
-ip link show can0 && ip link show can1  # 确认两路都 UP
+./start_can.sh                          # bring up can0 (follower) / can1 (leader)
+ip link show can0 && ip link show can1  # confirm both are UP
 ```
 
-用从臂(can0)单独验证 SDK 返回:
+Verify SDK output on the follower (can0) alone:
 ```bash
 $PY - <<'EOF'
 from metal_sdk import MetalSDKInterface
 from lerobot.motors.metal import default_urdf
-END_TYPE = 1                                   # 按你的真实末端改:0/1/2/3
+END_TYPE = 1                                   # set to your real end type: 0/1/2/3
 arm = MetalSDKInterface("can0", default_urdf(END_TYPE), END_TYPE, True)
 assert arm.Init(), "Init failed"
 import time; time.sleep(1)
 pos = arm.GetJointPosition()
-print("维度 =", len(pos))                       # 关键①: type1 应为 7
-print("关节名 =", arm.GetJointNames())
-print("位置(弧度) =", [round(x, 3) for x in pos])  # 关键②: 末位像夹爪mm(0-80)吗
+print("dim =", len(pos))                        # key #1: type 1 should be 7
+print("joint names =", arm.GetJointNames())
+print("position (rad) =", [round(x, 3) for x in pos])  # key #2: last value looks like gripper mm (0-80)?
 EOF
 ```
-**检查点**
-- 维度与上表一致(type 1 → 7)。若不符 → 告诉维护者,几行改 `arm_position_dim`。
-- 最后一维数值范围像 0–80(mm 夹爪)而非弧度 → 确认夹爪在第 7 位。
-- `GetJointNames()` 是否含夹爪名。
+**Checks**
+- Dimension matches the table above (type 1 → 7). If not, the connect-time guard
+  will already flag it; report so the maintainer can adjust `arm_position_dim`.
+- The last value range looks like 0–80 (gripper mm), not radians → gripper is at
+  index 6.
+- `GetJointNames()` includes a gripper name when expected.
 
-> 验证完**务必断电/释放**(`SetEnableArm(False)` 或退出进程)。
+> Always release/disable after verifying (`SetEnableArm(False)` or exit).
 
-接着用 lerobot 封装验证(mock 关闭,真机):
+Then verify through the lerobot wrapper (real, mock off):
 ```bash
 $PY - <<'EOF'
 from lerobot.robots.metal_follower import MetalFollower, MetalFollowerConfig
 r = MetalFollower(MetalFollowerConfig(can_id="can0", arm_end_type=1))
 r.connect()
 print("observation_features:", r.observation_features)
-print("一次观测:", r.get_observation())
+print("one observation:", r.get_observation())
 r.disconnect()
 EOF
 ```
-**期望**:打印 7 个 `jointX.pos`/`gripper.pos` 键,无异常。
+**Expect:** seven `jointX.pos` / `gripper.pos` keys, no exception. A wrong
+`arm_end_type` raises a clear "does not match the hardware" error here.
 
 ---
 
-## 阶段 2 — 遥操作闭环(主从都接,**手扶主臂**)
+## Stage 2 — Teleoperation loop (both arms, **hold the leader**)
 
-> ⚠️ 安全:主臂(can1)为重力补偿,**进程异常退出时会自由下落**。首次务必**手扶主臂、低姿态、远离障碍**,准备随时断电。
+> ⚠️ Safety: the leader (can1) runs in gravity compensation and **free-falls if
+> the process exits abnormally**. The first time, **hold the leader, keep it
+> low, clear of obstacles**, and be ready to cut power.
 
 ```bash
 lerobot-teleoperate \
   --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
   --teleop.type=metal_leader  --teleop.can_id=can1 --teleop.arm_end_type=1
 ```
-**检查点**
-- 推动主臂,从臂实时跟随。
-- **方向一致**(主臂某关节正转 → 从臂同向)。若反向 → 单位/符号约定需修正,记录哪个关节。
-- 捏主臂夹爪 → 从臂夹爪同步开合(仅 type 1/3)。
-- 首帧无大跳变(可加 `--robot.max_relative_target=5` 限幅试)。
+**Checks**
+- Move the leader; the follower tracks in real time.
+- **Direction matches** (a leader joint rotating one way → follower the same
+  way). If reversed, the sign convention needs fixing; note which joint.
+- Squeeze the leader gripper → follower gripper opens/closes (types 1/3 only).
+- No large jump on the first frame (try `--robot.max_relative_target=5` to clamp).
 
-通过 = 双实例共存、换算方向、控制模式全部正确。
+Passing this proves dual-instance coexistence, conversion direction, and control
+modes are all correct.
 
 ---
 
-## 阶段 3 — 录制 → 回放(验证 LeRobotDataset)
+## Stage 3 — Record → replay (validate the LeRobotDataset)
 
-先找相机索引:
+Find camera indices first:
 ```bash
-lerobot-find-cameras                     # 记下 high/left_wrist/right_wrist 的 index
+lerobot-find-cameras                     # note the index for high / left_wrist / right_wrist
 ```
 
-录 1 条(先少量验证管线):
+Record one episode (validate the pipeline with a small amount first):
 ```bash
 lerobot-record \
   --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
@@ -138,26 +164,27 @@ lerobot-record \
   --teleop.type=metal_leader --teleop.can_id=can1 --teleop.arm_end_type=1 \
   --dataset.repo_id=HappyEthan/metal_test --dataset.num_episodes=1 --dataset.push_to_hub=false
 ```
-**检查点**:录制无报错、终端显示帧率正常、本地生成数据集。
+**Checks:** recording runs without errors, the terminal shows a healthy frame
+rate, a local dataset is produced.
 
-回放(从臂复现,主臂可不接):
+Replay (follower reproduces; the leader can be disconnected):
 ```bash
 lerobot-replay \
   --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
   --dataset.repo_id=HappyEthan/metal_test --dataset.episode=0
 ```
-**检查点**:从臂平滑复现录制动作、夹爪开合还原。
+**Checks:** the follower smoothly reproduces the recorded motion and gripper.
 
 ---
 
-## 阶段 4 — 训练 → 推理(完整闭环)
+## Stage 4 — Train → inference (full loop)
 
-录够数据(如 ≥50 条)后:
+After recording enough data (e.g. ≥50 episodes):
 ```bash
 lerobot-train --dataset.repo_id=HappyEthan/metal_task --policy.type=act \
   --output_dir=outputs/train/metal_act
 ```
-推理(policy 驱动从臂,主臂可不接,从臂仍走 NRT):
+Inference (policy drives the follower; leader optional; follower stays in NRT):
 ```bash
 lerobot-record \
   --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
@@ -168,24 +195,24 @@ lerobot-record \
 
 ---
 
-## 故障速查
+## Troubleshooting
 
-| 现象 | 可能原因 / 处理 |
+| Symptom | Likely cause / fix |
 |---|---|
-| `ImportError: librclcpp.so` | 没 `source /opt/ros/humble/setup.bash` |
-| `GetJointPosition() returned N values, expected >= 6` | `arm_end_type` 与真实末端不符;按上表设对 |
-| `arm_end_type=1 expects a gripper but ... only 6 values` | 实际无夹爪,应改 `arm_end_type=0` 或换末端 |
-| 录制报 action/observation 维度不匹配 | 主从 `arm_end_type` 夹爪存在性不一致(见上文 🔴) |
-| `Init()` 失败 / 连不上 | `start_can.sh` 没起、URDF 路径错、can0/can1 接反 |
-| 从臂方向相反 | 关节符号约定,需在 `MetalMotorsBus` 换算处取反(记录关节号反馈) |
-| 主臂 Ctrl-C 后下落 | 重力补偿固有风险;首次手扶,后续可加 SIGINT 钩子先切 NRT 再断力矩 |
+| `ImportError: librclcpp.so` | Did not `source /opt/ros/humble/setup.bash` |
+| `... does not match the hardware` / `expected >= 6` | `arm_end_type` does not match the real end effector; set it per the table |
+| `arm_end_type=1 expects a gripper but ... only 6 values` | No gripper present; use `arm_end_type=0` or change the end effector |
+| record reports action/observation dim mismatch | Leader/follower gripper presence differs (see 🔴 above) |
+| `Init()` failed / cannot connect | `start_can.sh` not run, wrong URDF path, or can0/can1 swapped |
+| Follower moves in reverse | Joint sign convention; negate in the `MetalMotorsBus` conversion (report the joint) |
+| Leader drops after Ctrl-C | Inherent gravity-comp risk; hold it the first time, later add a SIGINT hook to switch to NRT then disable torque |
 
 ---
 
-## 已知未验证项(实现基于头文件/手册推断)
+## Known unverified items (implementation inferred from headers/manual)
 
-1. `GetJointPosition` 各 `arm_end_type` 的**实际维度**(阶段 1 验证)。
-2. `SetArmJointPosition` 的 **6元+velocity_ratio 重载**在 pybind11 下的解析(阶段 2 验证)。
-3. **双实例**(can0+can1)同进程稳定性(阶段 2 验证)。
-4. 关节/夹爪换算的**方向与零位**(阶段 2 验证)。
-5. 相机 `/dev/video*` 实际索引(阶段 3 用 `lerobot-find-cameras`)。
+1. Real `GetJointPosition` **dimension** per `arm_end_type` (verified in Stage 1).
+2. pybind11 overload resolution of `SetArmJointPosition` (6-elem + velocity_ratio) (Stage 2).
+3. **Dual-instance** (can0 + can1) stability in one process (Stage 2).
+4. Conversion **direction and zero offsets** for joints/gripper (Stage 2).
+5. Real camera `/dev/video*` indices (Stage 3, via `lerobot-find-cameras`).

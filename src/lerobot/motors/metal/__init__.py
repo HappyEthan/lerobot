@@ -1,7 +1,9 @@
 from .metal import (
     DEFAULT_METAL_MOTORS,
+    END_TYPE_HELP,
     URDF_NO_GRIPPER,
     URDF_WITH_GRIPPER,
+    VALID_END_TYPES,
     MetalMotorsBus,
     arm_has_gripper,
     arm_position_dim,
@@ -9,12 +11,15 @@ from .metal import (
     gripper_mm_to_norm,
     gripper_norm_to_mm,
     metal_motors,
+    validate_arm_end_type,
 )
 
 __all__ = [
     "DEFAULT_METAL_MOTORS",
+    "END_TYPE_HELP",
     "URDF_NO_GRIPPER",
     "URDF_WITH_GRIPPER",
+    "VALID_END_TYPES",
     "MetalMotorsBus",
     "arm_has_gripper",
     "arm_position_dim",
@@ -22,4 +27,5 @@ __all__ = [
     "gripper_mm_to_norm",
     "gripper_norm_to_mm",
     "metal_motors",
+    "validate_arm_end_type",
 ]

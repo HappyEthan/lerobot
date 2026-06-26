@@ -165,6 +165,20 @@ def test_no_gripper_schema_and_read_write_type0():
     assert all(c[0] != "gripper" for c in bus._sdk.commands)
 
 
+def test_invalid_end_type_rejected():
+    with pytest.raises(ValueError, match="arm_end_type"):
+        MetalMotorsBus(port="can0", motors=metal_motors(1), arm_end_type=5, mock=True)
+
+
+def test_connect_detects_wrong_end_type():
+    # Configured as gripper (expects 7) but the arm only reports 6 -> wrong end effector.
+    bus = make_bus(arm_end_type=1)
+    bus.connect()
+    bus._sdk.n_pos = 6  # simulate an arm that actually has no gripper
+    with pytest.raises(ValueError, match="does not match the hardware"):
+        bus._verify_end_type()
+
+
 def test_pendant_type2_has_no_gripper_but_7dim():
     bus = make_bus(arm_end_type=2)  # teaching pendant: 7-dim vector, gripper unusable
     assert "gripper" not in metal_motors(2)

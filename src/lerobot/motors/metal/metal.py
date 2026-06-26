@@ -22,6 +22,16 @@ JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 # types 1/2/3 (the with-gripper URDF), but a usable/actuated gripper exists only
 # for types 1 and 3. Type 2's 7th value is a non-actuated slot we ignore.
 GRIPPER_END_TYPES = frozenset({1, 3})
+VALID_END_TYPES = (0, 1, 2, 3)
+# Human-readable description of each end type, reused in error messages.
+END_TYPE_HELP = "0=none(6 dof), 1=gripper(7 dof), 2=teaching pendant(7 dof), 3=gripper+pendant(7 dof)"
+
+
+def validate_arm_end_type(arm_end_type: int) -> None:
+    """Raise ValueError if arm_end_type is not a supported end-effector code."""
+    if arm_end_type not in VALID_END_TYPES:
+        raise ValueError(f"arm_end_type must be one of {END_TYPE_HELP}; got {arm_end_type!r}")
+
 
 _URDF_DIR = "/home/ethan/makermods/metal-python-ros/metal_sdk/example/urdf"
 URDF_WITH_GRIPPER = f"{_URDF_DIR}/metal_with_gripper.urdf"
@@ -128,6 +138,7 @@ class MetalMotorsBus(MotorsBusBase):
         mock: bool = False,
     ):
         super().__init__(port, motors, calibration)
+        validate_arm_end_type(arm_end_type)
         self.urdf_path = urdf_path
         self.arm_end_type = arm_end_type
         self.velocity_ratio = velocity_ratio
@@ -152,8 +163,24 @@ class MetalMotorsBus(MotorsBusBase):
             if not self._sdk.Init():
                 self._sdk = None
                 raise ConnectionError(f"{self.port}: MetalSDKInterface.Init() failed")
+        self._verify_end_type()
         self._connected = True
         logger.info(f"MetalMotorsBus connected on {self.port} (mock={self.mock})")
+
+    def _verify_end_type(self) -> None:
+        """Fail fast when the configured arm_end_type does not match the hardware.
+
+        The reported joint-position length is the ground truth coming off the CAN
+        bus, so a wrong end-effector setting (e.g. arm_end_type=1 on an arm with no
+        gripper) surfaces here as a clear error instead of a later IndexError.
+        """
+        actual = len(self._sdk.GetJointPosition())
+        if actual != self._pos_dim:
+            raise ValueError(
+                f"{self.port}: arm_end_type={self.arm_end_type} expects GetJointPosition() to "
+                f"return {self._pos_dim} values, but the arm reported {actual}. The configured end "
+                f"effector does not match the hardware. Set arm_end_type to: {END_TYPE_HELP}."
+            )
 
     def disconnect(self, disable_torque: bool = True) -> None:
         if not self._connected:
@@ -230,7 +257,7 @@ class MetalMotorsBus(MotorsBusBase):
     def disable_torque(self, motors: str | list[str] | None = None, num_retry: int = 0) -> None:
         self._sdk.SetEnableArm(False)
 
-    # --- calibration (no-op: 工业臂关节限位由固件保证) ----------------------
+    # --- calibration (no-op: joint limits are enforced by the arm firmware) -
     def read_calibration(self) -> dict[str, MotorCalibration]:
         return self.calibration
 
