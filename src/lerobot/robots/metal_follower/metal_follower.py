@@ -2,7 +2,7 @@ import logging
 from functools import cached_property
 
 from lerobot.cameras import make_cameras_from_configs
-from lerobot.motors.metal import DEFAULT_METAL_MOTORS, MetalMotorsBus
+from lerobot.motors.metal import MetalMotorsBus, default_urdf, metal_motors
 from lerobot.robots.robot import Robot
 from lerobot.robots.utils import ensure_safe_goal_position
 
@@ -27,9 +27,9 @@ class MetalFollower(Robot):
         self.config = config
         self.bus = MetalMotorsBus(
             port=config.can_id,
-            motors=dict(DEFAULT_METAL_MOTORS),
+            motors=metal_motors(config.arm_end_type),
             calibration=config.calibration or {},
-            urdf_path=config.urdf_path,
+            urdf_path=config.urdf_path or default_urdf(config.arm_end_type),
             arm_end_type=config.arm_end_type,
             velocity_ratio=config.velocity_ratio,
             mock=config.mock,

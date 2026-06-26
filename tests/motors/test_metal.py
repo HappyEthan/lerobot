@@ -3,11 +3,20 @@ import math
 import pytest
 
 from lerobot.motors import MotorNormMode
-from lerobot.motors.metal import DEFAULT_METAL_MOTORS, MetalMotorsBus
+from lerobot.motors.metal import (
+    DEFAULT_METAL_MOTORS,
+    MetalMotorsBus,
+    arm_has_gripper,
+    arm_position_dim,
+    default_urdf,
+    metal_motors,
+)
 
 
-def make_bus(**kw):
-    return MetalMotorsBus(port="can0", motors=DEFAULT_METAL_MOTORS, mock=True, **kw)
+def make_bus(arm_end_type=1, **kw):
+    return MetalMotorsBus(
+        port="can0", motors=metal_motors(arm_end_type), arm_end_type=arm_end_type, mock=True, **kw
+    )
 
 
 def test_default_motors_schema():
@@ -128,3 +137,40 @@ def test_read_calibration_returns_config():
     bus = MetalMotorsBus(port="can0", motors=DEFAULT_METAL_MOTORS, calibration={}, mock=True)
     assert bus.read_calibration() == {}
     bus.write_calibration({})  # no-op, must not raise
+
+
+# --- arm_end_type variants -------------------------------------------------
+
+
+def test_end_type_helpers():
+    # gripper usable only for 1 and 3
+    assert [arm_has_gripper(t) for t in (0, 1, 2, 3)] == [False, True, False, True]
+    # GetJointPosition length: 6 for type 0, 7 otherwise
+    assert [arm_position_dim(t) for t in (0, 1, 2, 3)] == [6, 7, 7, 7]
+    assert default_urdf(0).endswith("metal_no_gripper.urdf")
+    assert default_urdf(1).endswith("metal_with_gripper.urdf")
+    assert default_urdf(2).endswith("metal_with_gripper.urdf")
+
+
+def test_no_gripper_schema_and_read_write_type0():
+    bus = make_bus(arm_end_type=0)  # no end effector -> 6 DOF
+    assert set(metal_motors(0)) == {f"joint{i}" for i in range(1, 7)}
+    bus.connect()
+    bus._sdk.joint_positions = [math.pi / 2, 0, 0, 0, 0, 0]
+    obs = bus.sync_read("Present_Position")
+    assert set(obs) == {f"joint{i}" for i in range(1, 7)}  # no gripper key
+    assert obs["joint1"] == pytest.approx(90.0)
+    # writing must not attempt a gripper stroke
+    bus.sync_write("Goal_Position", {f"joint{i}": 0.0 for i in range(1, 7)} | {"gripper": 50.0})
+    assert all(c[0] != "gripper" for c in bus._sdk.commands)
+
+
+def test_pendant_type2_has_no_gripper_but_7dim():
+    bus = make_bus(arm_end_type=2)  # teaching pendant: 7-dim vector, gripper unusable
+    assert "gripper" not in metal_motors(2)
+    bus.connect()
+    assert len(bus._sdk.GetJointPosition()) == 7  # SDK still returns 7
+    obs = bus.sync_read("Present_Position")
+    assert "gripper" not in obs  # but bus does not expose it
+    bus.sync_write("Goal_Position", {f"joint{i}": 0.0 for i in range(1, 7)} | {"gripper": 50.0})
+    assert all(c[0] != "gripper" for c in bus._sdk.commands)

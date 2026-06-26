@@ -17,15 +17,44 @@ logger = logging.getLogger(__name__)
 GRIPPER_MAX_MM = 80.0
 JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 
-DEFAULT_METAL_MOTORS: dict[str, Motor] = {
-    "joint1": Motor(1, "metal-j", MotorNormMode.DEGREES),
-    "joint2": Motor(2, "metal-j", MotorNormMode.DEGREES),
-    "joint3": Motor(3, "metal-j", MotorNormMode.DEGREES),
-    "joint4": Motor(4, "metal-j", MotorNormMode.DEGREES),
-    "joint5": Motor(5, "metal-j", MotorNormMode.DEGREES),
-    "joint6": Motor(6, "metal-j", MotorNormMode.DEGREES),
-    "gripper": Motor(7, "metal-g", MotorNormMode.RANGE_0_100),
-}
+# arm_end_type semantics (sdk_manual.md): 0=none, 1=gripper, 2=teaching pendant,
+# 3=gripper+pendant. GetJointPosition() returns 6 values for type 0 and 7 for
+# types 1/2/3 (the with-gripper URDF), but a usable/actuated gripper exists only
+# for types 1 and 3. Type 2's 7th value is a non-actuated slot we ignore.
+GRIPPER_END_TYPES = frozenset({1, 3})
+
+_URDF_DIR = "/home/ethan/makermods/metal-python-ros/metal_sdk/example/urdf"
+URDF_WITH_GRIPPER = f"{_URDF_DIR}/metal_with_gripper.urdf"
+URDF_NO_GRIPPER = f"{_URDF_DIR}/metal_no_gripper.urdf"
+
+
+def arm_has_gripper(arm_end_type: int) -> bool:
+    """Whether a usable gripper DOF exists for this end type (types 1 and 3)."""
+    return arm_end_type in GRIPPER_END_TYPES
+
+
+def arm_position_dim(arm_end_type: int) -> int:
+    """Length of GetJointPosition(): 6 for no end effector, 7 otherwise."""
+    return 6 if arm_end_type == 0 else 7
+
+
+def default_urdf(arm_end_type: int) -> str:
+    """URDF paired with the end type (no_gripper only for type 0)."""
+    return URDF_NO_GRIPPER if arm_end_type == 0 else URDF_WITH_GRIPPER
+
+
+def metal_motors(arm_end_type: int = 1) -> dict[str, Motor]:
+    """Motor schema for an end type: 6 joints, plus a gripper when usable."""
+    motors: dict[str, Motor] = {
+        name: Motor(i, "metal-j", MotorNormMode.DEGREES) for i, name in enumerate(JOINT_NAMES, start=1)
+    }
+    if arm_has_gripper(arm_end_type):
+        motors["gripper"] = Motor(7, "metal-g", MotorNormMode.RANGE_0_100)
+    return motors
+
+
+# Convenience default for the gripper configuration (arm_end_type=1).
+DEFAULT_METAL_MOTORS: dict[str, Motor] = metal_motors(1)
 
 
 def gripper_mm_to_norm(mm: float) -> float:
@@ -40,9 +69,11 @@ def gripper_norm_to_mm(norm: float) -> float:
 
 class _MockMetalSDK:
     """In-process stand-in for MetalSDKInterface. Speaks SDK-native units
-    (radians, mm) so the bus's conversion logic is exercised under tests."""
+    (radians, mm) so the bus's conversion logic is exercised under tests.
+    `n_pos` mirrors GetJointPosition()'s length for the configured end type."""
 
-    def __init__(self):
+    def __init__(self, n_pos: int = 7):
+        self.n_pos = n_pos
         self.joint_positions = [0.0] * 6  # radians
         self.gripper_mm = 0.0
         self.control_mode = None
@@ -55,11 +86,13 @@ class _MockMetalSDK:
         return True
 
     def GetJointNames(self):  # noqa: N802
-        return JOINT_NAMES + ["gripper"]
+        return JOINT_NAMES + (["gripper"] if self.n_pos == 7 else [])
 
     def GetJointPosition(self):  # noqa: N802
         self.get_position_calls += 1
-        return list(self.joint_positions) + [self.gripper_mm]
+        if self.n_pos == 7:
+            return list(self.joint_positions) + [self.gripper_mm]
+        return list(self.joint_positions)
 
     def SetArmJointPosition(self, positions, velocity_ratio=5):  # noqa: N802
         self.joint_positions = [float(p) for p in positions[:6]]
@@ -99,6 +132,8 @@ class MetalMotorsBus(MotorsBusBase):
         self.arm_end_type = arm_end_type
         self.velocity_ratio = velocity_ratio
         self.mock = mock
+        self._has_gripper = arm_has_gripper(arm_end_type)
+        self._pos_dim = arm_position_dim(arm_end_type)
         self._sdk = None
         self._control_mode: str | None = None
         self._connected = False
@@ -108,7 +143,7 @@ class MetalMotorsBus(MotorsBusBase):
         if self._connected:
             raise RuntimeError(f"{self.port}: already connected")
         if self.mock:
-            self._sdk = _MockMetalSDK()
+            self._sdk = _MockMetalSDK(self._pos_dim)
         else:
             # Deferred import: requires `source /opt/ros/humble/setup.bash`.
             from metal_sdk import MetalSDKInterface
@@ -152,9 +187,17 @@ class MetalMotorsBus(MotorsBusBase):
     def sync_read(
         self, data_name: str = "Present_Position", motors: str | list[str] | None = None
     ) -> dict[str, Value]:
-        raw = self._sdk.GetJointPosition()  # [j1..j6 rad, gripper mm]
+        raw = self._sdk.GetJointPosition()  # [j1..j6 rad] (+ gripper mm if present)
+        if len(raw) < 6:
+            raise ValueError(f"{self.port}: GetJointPosition() returned {len(raw)} values, expected >= 6")
         full: dict[str, Value] = {name: math.degrees(raw[i]) for i, name in enumerate(JOINT_NAMES)}
-        full["gripper"] = gripper_mm_to_norm(raw[6])
+        if self._has_gripper:
+            if len(raw) < 7:
+                raise ValueError(
+                    f"{self.port}: arm_end_type={self.arm_end_type} expects a gripper but "
+                    f"GetJointPosition() returned only {len(raw)} values"
+                )
+            full["gripper"] = gripper_mm_to_norm(raw[6])
         if motors is None:
             return full
         if isinstance(motors, str):
@@ -166,7 +209,7 @@ class MetalMotorsBus(MotorsBusBase):
         if len(joint_vals) == len(JOINT_NAMES):
             rads = [math.radians(v) for v in joint_vals]
             self._sdk.SetArmJointPosition(rads, self.velocity_ratio)
-        if "gripper" in values:
+        if self._has_gripper and "gripper" in values:
             self._sdk.SetGripperStroke(gripper_norm_to_mm(values["gripper"]), self.velocity_ratio)
 
     def read(self, data_name: str, motor: str) -> Value:

@@ -1,6 +1,6 @@
 import logging
 
-from lerobot.motors.metal import DEFAULT_METAL_MOTORS, MetalMotorsBus
+from lerobot.motors.metal import MetalMotorsBus, default_urdf, metal_motors
 from lerobot.teleoperators.teleoperator import Teleoperator
 
 from .config_metal_leader import MetalLeaderConfig
@@ -24,9 +24,9 @@ class MetalLeader(Teleoperator):
         self.config = config
         self.bus = MetalMotorsBus(
             port=config.can_id,
-            motors=dict(DEFAULT_METAL_MOTORS),
+            motors=metal_motors(config.arm_end_type),
             calibration=config.calibration or {},
-            urdf_path=config.urdf_path,
+            urdf_path=config.urdf_path or default_urdf(config.arm_end_type),
             arm_end_type=config.arm_end_type,
             mock=config.mock,
         )
