@@ -9,6 +9,8 @@ robot/teleop at startup).
 
 import logging
 import math
+import os
+from pathlib import Path
 
 from ..motors_bus import Motor, MotorCalibration, MotorNormMode, MotorsBusBase, Value
 
@@ -33,9 +35,13 @@ def validate_arm_end_type(arm_end_type: int) -> None:
         raise ValueError(f"arm_end_type must be one of {END_TYPE_HELP}; got {arm_end_type!r}")
 
 
-_URDF_DIR = "/home/ethan/makermods/metal-python-ros/metal_sdk/example/urdf"
-URDF_WITH_GRIPPER = f"{_URDF_DIR}/metal_with_gripper.urdf"
-URDF_NO_GRIPPER = f"{_URDF_DIR}/metal_no_gripper.urdf"
+# URDFs are bundled next to this module so the integration is self-contained on a
+# fresh clone. Override the directory with the METAL_URDF_DIR env var to point at
+# your own URDFs (e.g. a copy with meshes). The bundled files are mesh-less, which
+# is what the metal SDK uses for kinematics/gravity-compensation.
+_BUNDLED_URDF_DIR = Path(__file__).resolve().parent / "urdf"
+URDF_WITH_GRIPPER = str(_BUNDLED_URDF_DIR / "metal_with_gripper.urdf")
+URDF_NO_GRIPPER = str(_BUNDLED_URDF_DIR / "metal_no_gripper.urdf")
 
 
 def arm_has_gripper(arm_end_type: int) -> bool:
@@ -49,8 +55,14 @@ def arm_position_dim(arm_end_type: int) -> int:
 
 
 def default_urdf(arm_end_type: int) -> str:
-    """URDF paired with the end type (no_gripper only for type 0)."""
-    return URDF_NO_GRIPPER if arm_end_type == 0 else URDF_WITH_GRIPPER
+    """URDF paired with the end type (no_gripper only for type 0).
+
+    Resolves to the bundled URDF, or to ``$METAL_URDF_DIR`` when that env var is
+    set, so the path is portable across machines instead of hardcoded.
+    """
+    urdf_dir = Path(os.environ["METAL_URDF_DIR"]) if os.environ.get("METAL_URDF_DIR") else _BUNDLED_URDF_DIR
+    name = "metal_no_gripper.urdf" if arm_end_type == 0 else "metal_with_gripper.urdf"
+    return str(urdf_dir / name)
 
 
 def metal_motors(arm_end_type: int = 1) -> dict[str, Motor]:

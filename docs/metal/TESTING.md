@@ -82,7 +82,8 @@ The lowest-risk way to confirm/refute the assumptions the integration relies on.
 ```bash
 source /opt/ros/humble/setup.bash      # metal_sdk links ROS2 C++ libs; must source first
 conda activate MakerMods-lerobot
-./start_can.sh                          # bring up can0 (follower) / can1 (leader)
+# First time on this machine, teach the adapter map: (cd docs/metal && ./start_can.sh setup)
+(cd docs/metal && ./start_can.sh)       # bring up can0 (follower) / can1 (leader)
 ip link show can0 && ip link show can1  # confirm both are UP
 ```
 
