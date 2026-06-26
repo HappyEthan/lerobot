@@ -174,5 +174,7 @@ outputs/
 .cache/*
 *.stl
 *.urdf
+# Bundled metal-arm URDFs ship with the package (kinematics for metal_follower/leader).
+!src/lerobot/motors/metal/urdf/*.urdf
 *.xml
 *.part
