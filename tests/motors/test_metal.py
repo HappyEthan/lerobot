@@ -73,7 +73,15 @@ def test_sync_write_deg_to_rad_and_writes_gripper():
     bus.connect()
     bus.sync_write(
         "Goal_Position",
-        {"joint1": 90.0, "joint2": 0, "joint3": 0, "joint4": 0, "joint5": 0, "joint6": 180.0, "gripper": 50.0},
+        {
+            "joint1": 90.0,
+            "joint2": 0,
+            "joint3": 0,
+            "joint4": 0,
+            "joint5": 0,
+            "joint6": 180.0,
+            "gripper": 50.0,
+        },
     )
     assert bus._sdk.joint_positions[0] == pytest.approx(math.pi / 2)
     assert bus._sdk.joint_positions[5] == pytest.approx(math.pi)
@@ -86,8 +94,13 @@ def test_write_read_roundtrip():
     bus = make_bus()
     bus.connect()
     target = {
-        "joint1": 10.0, "joint2": 20.0, "joint3": 30.0,
-        "joint4": 40.0, "joint5": 50.0, "joint6": 60.0, "gripper": 25.0,
+        "joint1": 10.0,
+        "joint2": 20.0,
+        "joint3": 30.0,
+        "joint4": 40.0,
+        "joint5": 50.0,
+        "joint6": 60.0,
+        "gripper": 25.0,
     }
     bus.sync_write("Goal_Position", target)
     back = bus.sync_read("Present_Position")

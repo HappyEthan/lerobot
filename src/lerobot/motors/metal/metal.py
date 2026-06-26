@@ -50,28 +50,29 @@ class _MockMetalSDK:
         self.commands: list = []
         self.get_position_calls = 0
 
-    def Init(self) -> bool:
+    # Method names mirror the real MetalSDKInterface (pybind11) PascalCase API.
+    def Init(self) -> bool:  # noqa: N802
         return True
 
-    def GetJointNames(self):
+    def GetJointNames(self):  # noqa: N802
         return JOINT_NAMES + ["gripper"]
 
-    def GetJointPosition(self):
+    def GetJointPosition(self):  # noqa: N802
         self.get_position_calls += 1
         return list(self.joint_positions) + [self.gripper_mm]
 
-    def SetArmJointPosition(self, positions, velocity_ratio=5):
+    def SetArmJointPosition(self, positions, velocity_ratio=5):  # noqa: N802
         self.joint_positions = [float(p) for p in positions[:6]]
         self.commands.append(("joints", list(positions), velocity_ratio))
 
-    def SetGripperStroke(self, stroke, velocity_ratio=5):
+    def SetGripperStroke(self, stroke, velocity_ratio=5):  # noqa: N802
         self.gripper_mm = float(stroke)
         self.commands.append(("gripper", float(stroke), velocity_ratio))
 
-    def SetArmControlMode(self, mode):
+    def SetArmControlMode(self, mode):  # noqa: N802
         self.control_mode = mode
 
-    def SetEnableArm(self, flag):
+    def SetEnableArm(self, flag):  # noqa: N802
         self.enabled = bool(flag)
 
 
@@ -190,8 +191,6 @@ class MetalMotorsBus(MotorsBusBase):
     def read_calibration(self) -> dict[str, MotorCalibration]:
         return self.calibration
 
-    def write_calibration(
-        self, calibration_dict: dict[str, MotorCalibration], cache: bool = True
-    ) -> None:
+    def write_calibration(self, calibration_dict: dict[str, MotorCalibration], cache: bool = True) -> None:
         if cache:
             self.calibration = calibration_dict
