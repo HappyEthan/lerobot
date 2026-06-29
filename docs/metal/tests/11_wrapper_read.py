@@ -11,7 +11,6 @@
 
 用法:
   python docs/metal/tests/11_wrapper_read.py --can can0 --end-type 1
-  python docs/metal/tests/11_wrapper_read.py --mock        # 无硬件,仅验证逻辑
 """
 
 import argparse
@@ -23,10 +22,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--can", default="can0", help="SocketCAN 接口(默认 can0)")
     parser.add_argument("--end-type", type=int, default=1, help="arm_end_type 0/1/2/3")
-    parser.add_argument("--mock", action="store_true", help="使用进程内 mock SDK(无硬件)")
     args = parser.parse_args()
 
-    cfg = MetalFollowerConfig(can_id=args.can, arm_end_type=args.end_type, mock=args.mock)
+    cfg = MetalFollowerConfig(can_id=args.can, arm_end_type=args.end_type)
     robot = MetalFollower(cfg)
     robot.connect()
     try:

@@ -9,7 +9,7 @@
 → 写入数据集。本脚本默认**不接相机**(先把状态/动作这条链跑通);相机用官方
 `lerobot-record` 加 `--robot.cameras=...` 更合适。
 
-⚠️ 需要两个臂 + 两个适配器(can0=follower / can1=leader)。无硬件用 `--mock` 验证逻辑。
+⚠️ 需要两个臂 + 两个适配器(can0=follower / can1=leader)。
 ⚠️ 安全:leader 重力补偿,异常退出会自由下坠;录制时扶着点、放低、清空周围。
 
 用法:
@@ -18,8 +18,6 @@
   # 回放:
   lerobot-replay --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
       --dataset.repo_id=local/metal_record_test --dataset.episode=0
-
-  python docs/metal/tests/15_record.py --mock --seconds 1 --fps 5 --root /tmp/metal_ds  # 仅验证逻辑
 """
 
 import argparse
@@ -45,18 +43,16 @@ def main() -> None:
     parser.add_argument("--repo-id", default="local/metal_record_test", help="数据集 repo_id(namespace/name)")
     parser.add_argument("--root", default=None, help="数据集根目录(默认 HF 缓存);重复跑请换 repo-id 或 root")
     parser.add_argument("--task", default="metal teleop record test", help="任务描述文本")
-    parser.add_argument("--mock", action="store_true", help="使用进程内 mock SDK(无硬件)")
     args = parser.parse_args()
 
     max_rel = args.max_step if args.max_step > 0 else None
 
-    leader = MetalLeader(MetalLeaderConfig(can_id=args.leader_can, arm_end_type=args.end_type, mock=args.mock))
+    leader = MetalLeader(MetalLeaderConfig(can_id=args.leader_can, arm_end_type=args.end_type))
     follower = MetalFollower(
         MetalFollowerConfig(
             can_id=args.follower_can,
             arm_end_type=args.end_type,
             max_relative_target=max_rel,
-            mock=args.mock,
         )
     )
 
@@ -112,8 +108,6 @@ def main() -> None:
             n_frames += 1
 
             print(f"  录制中… 帧 {n_frames}  t={time.perf_counter() - start:5.1f}s", end="\r", flush=True)
-            if args.mock and n_frames >= max(1, int(args.seconds * args.fps)):
-                break
             time.sleep(max(0.0, period - (time.perf_counter() - loop_t)))
     except KeyboardInterrupt:
         print("\n收到 Ctrl-C,停止录制。")

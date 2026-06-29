@@ -12,7 +12,6 @@
 
 用法:
   python docs/metal/tests/12_single_joint.py --can can0 --end-type 1 --joint joint1 --delta 5
-  python docs/metal/tests/12_single_joint.py --mock --delta 5     # 仅验证逻辑,无硬件
 """
 
 import argparse
@@ -29,7 +28,6 @@ def main() -> None:
     parser.add_argument("--end-type", type=int, default=1, help="arm_end_type 0/1/2/3")
     parser.add_argument("--joint", default="joint1", choices=JOINT_NAMES, help="要小幅移动的关节")
     parser.add_argument("--delta", type=float, default=5.0, help="移动角度(度,默认 5)")
-    parser.add_argument("--mock", action="store_true", help="使用进程内 mock SDK(无硬件)")
     args = parser.parse_args()
 
     validate_arm_end_type(args.end_type)
@@ -41,7 +39,6 @@ def main() -> None:
         metal_motors(args.end_type),
         urdf_path=default_urdf(args.end_type),
         arm_end_type=args.end_type,
-        mock=args.mock,
     )
     bus.connect()
     try:
@@ -58,11 +55,10 @@ def main() -> None:
         print(f"\n将移动 {args.joint}:{start[args.joint]:.2f} -> {target[args.joint]:.2f} 度,"
               f"随后归位。")
 
-        if not args.mock:
-            ans = input("请扶住机械臂。输入 'yes' 开始移动:").strip().lower()
-            if ans != "yes":
-                print("已被用户取消,未发送任何运动指令。")
-                return
+        ans = input("请扶住机械臂。输入 'yes' 开始移动:").strip().lower()
+        if ans != "yes":
+            print("已被用户取消,未发送任何运动指令。")
+            return
 
         bus.sync_write("Goal_Position", target)
         time.sleep(1.5)
@@ -70,7 +66,7 @@ def main() -> None:
         moved = after[args.joint] - start[args.joint]
         print(f"移动后:{args.joint} = {after[args.joint]:.2f} 度(实际移动 {moved:+.2f},"
               f"指令 {args.delta:+.2f})")
-        if not args.mock and abs(moved - args.delta) > 2.0:
+        if abs(moved - args.delta) > 2.0:
             print("[注意] 实际移动量与指令不符 —— 请记录正负号/比例,反馈给维护者。")
 
         print("\n正在归位到起始姿态...")

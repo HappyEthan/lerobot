@@ -9,14 +9,13 @@
 follower 也是**平滑 ramp 过去**,不会第一帧暴冲。
 
 ⚠️ 需要两个臂 + 两个适配器,且已 `./start_can.sh setup`(分开插两个适配器)让
-can0/can1 各对一个。只有一个臂时用 `--mock` 验证逻辑。
+can0/can1 各对一个。
 
 ⚠️ 安全:leader 处于重力补偿,**进程异常退出会自由下坠**。第一次:扶住 leader、
 放低、清空周围,随时准备断电。
 
 用法:
   python docs/metal/tests/14_teleop.py --follower-can can0 --leader-can can1 --end-type 1
-  python docs/metal/tests/14_teleop.py --mock --end-type 1     # 无硬件,仅验证逻辑
 """
 
 import argparse
@@ -39,20 +38,18 @@ def main() -> None:
         help="每周期 follower 单关节最大移动量(度),防第一帧暴冲;0=不限幅(危险)",
     )
     parser.add_argument("--gripper-vr", type=int, default=10, help="夹爪速度比 1-10(越大越快,默认 10)")
-    parser.add_argument("--mock", action="store_true", help="使用进程内 mock SDK(无硬件)")
     args = parser.parse_args()
 
     period = 1.0 / args.hz if args.hz > 0 else 0.03
     max_rel = args.max_step if args.max_step > 0 else None
 
-    leader = MetalLeader(MetalLeaderConfig(can_id=args.leader_can, arm_end_type=args.end_type, mock=args.mock))
+    leader = MetalLeader(MetalLeaderConfig(can_id=args.leader_can, arm_end_type=args.end_type))
     follower = MetalFollower(
         MetalFollowerConfig(
             can_id=args.follower_can,
             arm_end_type=args.end_type,
             max_relative_target=max_rel,  # follower 内置安全限幅(每周期相对当前位姿的最大变化)
             gripper_velocity_ratio=args.gripper_vr,  # 夹爪更快,跟上关节
-            mock=args.mock,
         )
     )
 
@@ -71,7 +68,6 @@ def main() -> None:
     print("已连接。拖动 leader,follower 跟随。按 Ctrl-C 退出(退出前先扶住 leader!)\n")
 
     joint_keys = [k for k in follower.action_features if k.startswith("joint")]
-    i = 0
     try:
         while True:
             action = leader.get_action()  # leader 当前角(度 / 夹爪 0-100)
@@ -81,11 +77,6 @@ def main() -> None:
             if grip is not None:
                 line += f"  grip={grip:6.2f}"
             print("  leader→ " + line, end="\r", flush=True)
-
-            i += 1
-            if args.mock and i >= 3:
-                print("\n(mock)已循环 3 次,退出。")
-                break
             time.sleep(period)
     except KeyboardInterrupt:
         print("\n收到 Ctrl-C。")

@@ -15,7 +15,6 @@
 
 用法:
   python docs/metal/tests/13_leader_gravity_read.py --can can1 --end-type 1
-  python docs/metal/tests/13_leader_gravity_read.py --mock        # 无硬件,仅验证逻辑
 """
 
 import argparse
@@ -36,7 +35,6 @@ def main() -> None:
     parser.add_argument("--can", default="can1", help="SocketCAN 接口(默认 can1 = leader)")
     parser.add_argument("--end-type", type=int, default=1, help="arm_end_type 0/1/2/3")
     parser.add_argument("--hz", type=float, default=10.0, help="刷新频率(默认 10 Hz)")
-    parser.add_argument("--mock", action="store_true", help="使用进程内 mock SDK(无硬件)")
     args = parser.parse_args()
 
     validate_arm_end_type(args.end_type)
@@ -48,7 +46,6 @@ def main() -> None:
         metal_motors(args.end_type),
         urdf_path=default_urdf(args.end_type),
         arm_end_type=args.end_type,
-        mock=args.mock,
     )
     bus.connect()
     try:
@@ -57,7 +54,6 @@ def main() -> None:
         print("用手拖动主臂,观察下面的关节角实时变化。按 Ctrl-C 退出(退出前先扶住!)\n")
 
         cols = JOINT_NAMES + (["gripper"] if has_gripper else [])
-        i = 0
         while True:
             pose = bus.sync_read("Present_Position")
             parts = []
@@ -67,11 +63,6 @@ def main() -> None:
                 parts.append(f"{name}={pose[name]:7.2f}{suffix}")
             # \r 原地刷新,单行滚动显示
             print("  " + "  ".join(parts), end="\r", flush=True)
-
-            i += 1
-            if args.mock and i >= 3:  # mock 模式只跑几次就退出,便于无硬件验证
-                print("\n(mock)已读取 3 次,退出。")
-                break
             time.sleep(period)
     except KeyboardInterrupt:
         print("\n收到 Ctrl-C。")

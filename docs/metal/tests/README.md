@@ -4,6 +4,10 @@
 每一步通过后再进行下一步。完整参考(故障排查表、训练/评估)见
 [`../TESTING.md`](../TESTING.md)。
 
+> 所有脚本都连真机运行(阶段 0 是无硬件的单元测试 + CLI 注册检查)。整条
+> 阶段 0→3 已在双臂真机上验证通过。日常操作直接用官方 CLI(见
+> [`../CLI_命令速查.md`](../CLI_命令速查.md));这些脚本用于首次 bring-up 和排查。
+
 ## 一次性前置准备
 
 ```bash
@@ -27,14 +31,6 @@ export PY=/home/ethan/miniconda3/envs/MakerMods-lerobot/bin/python
 | 1d | `$PY docs/metal/tests/13_leader_gravity_read.py --can can1 --end-type 1` | leader 重力补偿 + 徒手拖动实时读角 | **仅单 leader 臂** |
 | 2 | `$PY docs/metal/tests/14_teleop.py --follower-can can0 --leader-can can1 --end-type 1`(或下方 CLI) | leader→follower 跟随 | 双臂 |
 | 3 | `$PY docs/metal/tests/15_record.py --follower-can can0 --leader-can can1 --end-type 1 --repo-id local/metal_record_test`(回放见下) | 录制 LeRobotDataset → 回放 | 双臂(无相机) |
-
-### 无硬件试跑
-在碰真机之前先验证脚本逻辑(使用进程内 mock SDK):
-
-```bash
-$PY docs/metal/tests/11_wrapper_read.py --mock
-$PY docs/metal/tests/12_single_joint.py --mock --delta 5
-```
 
 ### 任何硬件阶段之前先拉起 CAN
 
@@ -63,7 +59,10 @@ lerobot-teleoperate \
   --robot.type=metal_follower --robot.can_id=can0 --robot.arm_end_type=1 \
   --teleop.type=metal_leader  --teleop.can_id=can1 --teleop.arm_end_type=1
 ```
-加 `--robot.max_relative_target=5` 可限制首帧跳变。
+- 加 `--robot.max_relative_target=5` 可限制首帧跳变。
+- 夹爪比关节慢,默认 `gripper_velocity_ratio=10`(已拉满);`14_teleop.py` 用
+  `--gripper-vr` 现场调,CLI 用 `--robot.gripper_velocity_ratio`。
+- 加 `--display_data=true` 开 rerun 可视化(关节 observation/action 曲线 + 相机)。
 
 ## 阶段 3 —— 录制 → 回放
 

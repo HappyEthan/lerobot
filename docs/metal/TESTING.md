@@ -60,9 +60,14 @@ follower's. So:
 ```bash
 $PY -m pytest tests/motors/test_metal.py tests/robots/test_metal_follower.py tests/teleoperators/test_metal_leader.py -q
 ```
-**Expect:** `30 passed`. Covers unit conversions, all `arm_end_type` variants,
+**Expect:** `31 passed`. Covers unit conversions, all `arm_end_type` variants,
 control modes, schema agreement, safety clamping, misconfiguration detection,
-and the side-effect-free `is_connected`.
+independent joint/gripper velocity ratios, and the side-effect-free `is_connected`.
+
+> These unit tests use an in-process SDK test double (`_MockMetalSDK`) so they
+> run in CI without ROS2/hardware. The hardware-facing scripts in
+> [`tests/`](./tests/) (`10`–`15`) always talk to the real arm. This file's
+> inline hardware snippets and those scripts are equivalent — use whichever.
 
 CLI recognizes the types (no hardware, no ROS2 needed):
 ```bash
@@ -210,10 +215,16 @@ lerobot-record \
 
 ---
 
-## Known unverified items (implementation inferred from headers/manual)
+## Verified on real hardware (2026-06-29, dual arm)
 
-1. Real `GetJointPosition` **dimension** per `arm_end_type` (verified in Stage 1).
-2. pybind11 overload resolution of `SetArmJointPosition` (6-elem + velocity_ratio) (Stage 2).
-3. **Dual-instance** (can0 + can1) stability in one process (Stage 2).
-4. Conversion **direction and zero offsets** for joints/gripper (Stage 2).
-5. Real camera `/dev/video*` indices (Stage 3, via `lerobot-find-cameras`).
+1. ✅ `GetJointPosition` **dimension** per `arm_end_type` (7 for type 1).
+2. ✅ `SetArmJointPosition` (6-elem + velocity_ratio) drives the joints.
+3. ✅ **Dual-instance** (can0 follower + can1 leader) coexist in one process.
+4. ✅ Conversion **direction** correct (joints track the leader the right way).
+5. ✅ Gripper position/angle correct; gripper is mechanically slower than the
+   joints, mitigated with a faster `gripper_velocity_ratio` (default 10).
+6. ✅ End-to-end teleoperate → record → replay and rerun (`--display_data=true`)
+   all working through the official CLI.
+
+Still hardware-specific per machine: camera `/dev/video*` indices (find via
+`lerobot-find-cameras`) when recording with cameras for training.
