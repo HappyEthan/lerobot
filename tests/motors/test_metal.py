@@ -99,6 +99,18 @@ def test_sync_write_deg_to_rad_and_writes_gripper():
     assert "gripper" in kinds  # NRT path also writes gripper
 
 
+def test_gripper_uses_its_own_velocity_ratio():
+    # Joints and gripper carry independent velocity ratios so the slower gripper
+    # actuator can be driven faster without making the joints jerky.
+    bus = make_bus(velocity_ratio=5, gripper_velocity_ratio=10)
+    bus.connect()
+    bus.sync_write("Goal_Position", {f"joint{i}": 0.0 for i in range(1, 7)} | {"gripper": 50.0})
+    joint_cmd = next(c for c in bus._sdk.commands if c[0] == "joints")
+    gripper_cmd = next(c for c in bus._sdk.commands if c[0] == "gripper")
+    assert joint_cmd[2] == 5  # velocity_ratio for the 6 joints
+    assert gripper_cmd[2] == 10  # faster ratio for the gripper
+
+
 def test_write_read_roundtrip():
     bus = make_bus()
     bus.connect()

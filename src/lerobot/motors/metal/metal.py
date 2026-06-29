@@ -147,13 +147,18 @@ class MetalMotorsBus(MotorsBusBase):
         urdf_path: str = "",
         arm_end_type: int = 1,
         velocity_ratio: int = 5,
+        gripper_velocity_ratio: int = 10,
         mock: bool = False,
     ):
         super().__init__(port, motors, calibration)
         validate_arm_end_type(arm_end_type)
         self.urdf_path = urdf_path
         self.arm_end_type = arm_end_type
+        # Joints default to a smooth ratio; the gripper gets its own (faster by
+        # default) ratio because its actuator is mechanically slower and otherwise
+        # lags behind the joints during teleoperation. Both are in [1, 10].
         self.velocity_ratio = velocity_ratio
+        self.gripper_velocity_ratio = gripper_velocity_ratio
         self.mock = mock
         self._has_gripper = arm_has_gripper(arm_end_type)
         self._pos_dim = arm_position_dim(arm_end_type)
@@ -249,7 +254,7 @@ class MetalMotorsBus(MotorsBusBase):
             rads = [math.radians(v) for v in joint_vals]
             self._sdk.SetArmJointPosition(rads, self.velocity_ratio)
         if self._has_gripper and "gripper" in values:
-            self._sdk.SetGripperStroke(gripper_norm_to_mm(values["gripper"]), self.velocity_ratio)
+            self._sdk.SetGripperStroke(gripper_norm_to_mm(values["gripper"]), self.gripper_velocity_ratio)
 
     def read(self, data_name: str, motor: str) -> Value:
         return self.sync_read(data_name, [motor])[motor]

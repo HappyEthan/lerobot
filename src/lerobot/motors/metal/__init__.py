@@ -1,6 +1,7 @@
 from .metal import (
     DEFAULT_METAL_MOTORS,
     END_TYPE_HELP,
+    JOINT_NAMES,
     URDF_NO_GRIPPER,
     URDF_WITH_GRIPPER,
     VALID_END_TYPES,
@@ -17,6 +18,7 @@ from .metal import (
 __all__ = [
     "DEFAULT_METAL_MOTORS",
     "END_TYPE_HELP",
+    "JOINT_NAMES",
     "URDF_NO_GRIPPER",
     "URDF_WITH_GRIPPER",
     "VALID_END_TYPES",

@@ -27,6 +27,52 @@ absolute paths.
 
 ---
 
+## Setting up a new machine — do you need ROS2?
+
+**It depends on what the machine does.** `import metal_sdk` is deferred (it only
+happens when you `connect()` to real hardware), so ROS2 is needed *only on a
+machine that drives the physical arm*.
+
+| Machine's role | Needs ROS2? |
+|---|---|
+| Training / dataset work / running tests / `lerobot-replay` of recorded data | ❌ No |
+| Driving the real arm (`teleoperate`, `record`, on-hardware `eval`) | ✅ Yes |
+
+**Why:** `metal_sdk` → `libmetal_sdk_x64.so` (a vendor precompiled binary) hard-links
+25 ROS2 `.so` files (`librclcpp.so`, `libkdl_parser.so`, …). The loader must resolve
+them at import time. Sourcing ROS2 only sets `LD_LIBRARY_PATH`; **no ROS node, daemon,
+or DDS traffic runs** — you are just loading C++ libraries. The `kdl_parser`/`urdf`
+parts do the URDF kinematics and gravity compensation (that is why a URDF is passed).
+
+### Minimal ROS2 install (control machine only)
+
+You do **not** need the full ROS2 desktop. Install just the runtime libraries
+(Ubuntu 22.04 + ROS2 Humble; for arm64/Jetson use the matching arm64 packages):
+
+```bash
+sudo apt install ros-humble-ros-base \
+                 ros-humble-kdl-parser ros-humble-urdf \
+                 libnlopt0 libgoogle-glog0v5
+```
+
+- `ros-humble-ros-base` — rclcpp/rcl/rmw/rosidl/ament stack (no GUI)
+- `ros-humble-kdl-parser`, `ros-humble-urdf` — kinematics / gravity compensation
+- `libnlopt0`, `libgoogle-glog0v5` — IK optimisation and logging
+
+**Footprint:** the whole `/opt/ros/humble` for this minimal set is **~110 MB on
+disk** (vs ~1 GB+ for `ros-humble-desktop`). After installing, every hardware
+session just needs:
+
+```bash
+source /opt/ros/humble/setup.bash
+conda activate MakerMods-lerobot
+```
+
+> Tip: to never type `source` again, add that line to the conda env's
+> `activate.d` so `LD_LIBRARY_PATH` is set automatically on `conda activate`.
+
+---
+
 ## Step 1 — Bring up the CAN interfaces
 
 The arms appear as `can0` (slave/follower) and `can1` (master/leader). Which

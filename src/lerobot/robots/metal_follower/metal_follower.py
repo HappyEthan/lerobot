@@ -32,6 +32,7 @@ class MetalFollower(Robot):
             urdf_path=config.urdf_path or default_urdf(config.arm_end_type),
             arm_end_type=config.arm_end_type,
             velocity_ratio=config.velocity_ratio,
+            gripper_velocity_ratio=config.gripper_velocity_ratio,
             mock=config.mock,
         )
         self.cameras = make_cameras_from_configs(config.cameras)

@@ -14,6 +14,9 @@ class MetalFollowerConfig(RobotConfig):
     # Empty -> auto-selected from arm_end_type (no_gripper URDF only for type 0).
     urdf_path: str = ""
     velocity_ratio: int = 5
+    # Gripper actuator is slower than the joints; give it a faster ratio (1-10) so
+    # it keeps up during teleoperation. Lower it if the gripper snaps too hard.
+    gripper_velocity_ratio: int = 10
     disable_torque_on_disconnect: bool = True
     max_relative_target: float | dict[str, float] | None = None
     mock: bool = False
